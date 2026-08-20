@@ -1,6 +1,12 @@
 import os
+import sys
+
+# Добавляем корневую папку проекта в пути Python
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
+from app.services.document_loader import load_documents
 
 # Папка, где база данных будет хранить векторы
 CHROMA_PERSIST_DIR = "../../data/chroma_db"
@@ -9,7 +15,6 @@ CHROMA_PERSIST_DIR = "../../data/chroma_db"
 def get_huggingface_embeddings():
     """
     Загружает бесплатную локальную модель для создания векторов.
-    При первом запуске она скачается на ваш компьютер (около 80 МБ).
     """
     return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
@@ -48,3 +53,20 @@ def get_vector_store():
         embedding_function=embeddings
     )
     return vector_store
+
+
+# === БЛОК ЗАПУСКА (Чтение папки) ===
+if __name__ == "__main__":
+    # Указываем путь к папке docs, куда вы скопировали свои PDF
+    docs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/docs'))
+
+    print("Начинаем обработку документов...")
+
+    # Вызываем загрузчик для всей папки
+    documents = load_documents(docs_dir)
+
+    # Если документы загружены, создаем векторную базу
+    if documents:
+        create_vector_store(documents)
+    else:
+        print("Внимание: Документы не найдены. Проверьте, лежат ли PDF в папке data/docs")

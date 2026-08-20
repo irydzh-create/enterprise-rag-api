@@ -1,46 +1,32 @@
 import os
-import sys
-
-# Добавляем корневую папку проекта в пути Python, чтобы импорты из app работали при прямом запуске
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-
-from langchain_community.document_loaders import PyPDFLoader
-# Тот самый новый импорт, который мы добавили для работы с базой данных
-from app.services.vector_store import create_vector_store
+from langchain_community.document_loaders import DirectoryLoader, PyMuPDFLoader
 
 
-def load_and_split_pdf(file_path: str):
+def load_documents(directory_path: str):
     """
-    Загружает PDF-файл и разбивает его на страницы/блоки (chunks).
-    Это необходимо, так как длинные документы не помещаются в контекст LLM целиком.
+    Загружает все PDF-документы из указанной папки с помощью продвинутого парсера PyMuPDF.
     """
-    # Проверяем, существует ли файл
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Файл не найден по пути: {file_path}")
+    if not os.path.exists(directory_path):
+        raise FileNotFoundError(f"Папка {directory_path} не найдена.")
 
-    # Инициализируем загрузчик LangChain
-    loader = PyPDFLoader(file_path)
+    print(f"📂 Сканирую папку: {directory_path} (использую продвинутый парсер PyMuPDF)")
 
-    # Загружаем и разбиваем документ
-    pages = loader.load_and_split()
+    # Используем DirectoryLoader, который сам найдет все .pdf файлы и применит к ним PyMuPDFLoader
+    loader = DirectoryLoader(
+        directory_path,
+        glob="*.pdf",  # Ищем только PDF-файлы, игнорируем системные и скрытые
+        loader_cls=PyMuPDFLoader
+    )
 
-    print(f"✅ Документ успешно загружен. Разбито на {len(pages)} фрагментов (страниц).")
-    return pages
+    documents = loader.load()
+
+    print(f"✅ Успешно загружено страниц из всех PDF: {len(documents)}")
+    return documents
 
 
-# Блок для проверки (работает только если запустить этот файл напрямую)
+# Блок для проверки
 if __name__ == "__main__":
-    # Укажите путь к вашему PDF-файлу в папке data/
-    test_file_path = "../../data/sample.pdf"
-
-    try:
-        documents = load_and_split_pdf(test_file_path)
-        if documents:
-            print(f"Первые 200 символов текста:\n{documents[0].page_content[:200]}...")
-
-            # --- НОВЫЙ ШАГ: Создаем векторы ---
-            vector_store = create_vector_store(documents)
-            print("Готово! Данные готовы к поиску.")
-
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
+    docs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/docs'))
+    docs = load_documents(docs_dir)
+    if docs:
+        print(f"Пример текста из первого документа:\n{docs[0].page_content[:200]}...")
