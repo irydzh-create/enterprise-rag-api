@@ -1,59 +1,51 @@
-import os
-import sys
-
-# Добавляем корневую папку проекта в пути Python
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-
-from langchain_community.llms import Ollama
-from app.services.retriever import search_documents
+from langchain_ollama import OllamaLLM  # <-- НОВЫЙ ИМПОРТ
+from langchain_core.prompts import PromptTemplate
+from app.services.vector_store import get_vector_store
 
 
-def generate_answer(query: str):
-    """
-    Принимает вопрос, ищет информацию в базе данных (PDF)
-    и генерирует связный ответ с помощью локальной нейросети Ollama.
-    """
-    print("🧠 Подключаю локальную нейросеть (Ollama)...")
+def generate_answer(query: str, chat_history: list = None) -> str:
+    vector_store = get_vector_store()
+    if not vector_store:
+        return "К сожалению, база данных пуста или не найдена."
 
-    # Инициализируем нашу легкую локальную модель
-    llm = Ollama(model="llama3.2")
+    # 1. Достаем 5 кусков текста из базы
+    retriever = vector_store.as_retriever(search_kwargs={"k": 10})
+    docs = retriever.invoke(query)
+    context = "\n\n".join([doc.page_content for doc in docs])
 
-    # 1. Ищем релевантные куски текста в документе
-    documents = search_documents(query, k=3)
-    if not documents:
-        return "К сожалению, база данных пуста или подходящая информация не найдена."
+    # 2. Красиво оформляем историю диалога
+    history_text = ""
+    if chat_history:
+        for msg in chat_history:
+            sender = "Пользователь" if msg["role"] == "user" else "Ассистент"
+            history_text += f"{sender}: {msg['content']}\n"
+    else:
+        history_text = "Это начало диалога."
 
-    # 2. Формируем единый контекст из найденных фрагментов
-    context = "\n\n".join([doc.page_content for doc in documents])
+        prompt = PromptTemplate(
+            template="""Ты точный AI-аналитик. Твоя задача — отвечать на вопросы по личным карьерным документам Ирины Джеляловой (Iryna Dzhelialova). 
+             Учитывай, что если в вопросе говорится "я", "Ирина" или "Iryna", речь идет об одном и том же человеке!
 
-    # 3. Пишем системный промпт (строгую инструкцию для нейросети)
-    prompt = f"""Ты — умный и профессиональный корпоративный ассистент. 
-Используй ТОЛЬКО следующий контекст для ответа на вопрос пользователя. 
-Если в тексте нет нужной информации, честно скажи, что не знаешь ответа, не выдумывай ничего от себя.
-Отвечай на том же языке, на котором задан вопрос.
+             ВАЖНЫЕ ПРАВИЛА:
+             1. Если ответ не найден в контексте, скажи "В документах нет этой информации".
+             2. Ничего не выдумывай от себя.
+             3. Профессия Ирины: Lehrer für Informatik und Mathematik (Учитель информатики и математики).
 
-Контекст документа:
-{context}
+             История нашего диалога:
+             {history}
 
-Вопрос пользователя: {query}
+             Контекст из документов:
+             {context}
 
-Твой ответ:"""
+             Текущий вопрос пользователя: {question}
+             Ответ:""",
+            input_variables=["history", "context", "question"]
+        )
+    print("🧠 Нейросеть анализирует контекст и историю диалога...")
 
-    print("✍️ Нейросеть генерирует ответ (это может занять 20-40 секунд на процессоре)...\n")
+    # Подключаем локальную Ollama через новый класс
+    llm = OllamaLLM(model="llama3.2")  # <-- НОВЫЙ КЛАСС
 
-    # 4. Отправляем промпт в нейросеть и получаем ответ
-    response = llm.invoke(prompt)
-
-    print("🤖 Ответ ассистента:")
-    print("--------------------------------------------------")
-    print(response)
-    print("--------------------------------------------------")
-
-    return response
-
-
-# Блок для проверки
-if __name__ == "__main__":
-    # Тестовый вопрос по вашему PDF-файлу
-    test_query = "Что такое Conditional Statements и зачем нужны условные конструкции?"
-    generate_answer(test_query)
+    # Собираем цепочку и генерируем ответ
+    chain = prompt | llm
+    return chain.invoke({"history": history_text, "context": context, "question": query})

@@ -8,15 +8,16 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from app.services.document_loader import load_documents
 
-# Папка, где база данных будет хранить векторы
-CHROMA_PERSIST_DIR = "../../data/chroma_db"
+# 🎯 АБСОЛЮТНЫЙ ПУТЬ к базе данных (теперь работает из ЛЮБОЙ папки!)
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+CHROMA_PERSIST_DIR = os.path.join(BASE_DIR, "data", "chroma_db")
 
 
 def get_huggingface_embeddings():
     """
     Загружает бесплатную локальную модель для создания векторов.
     """
-    return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    return HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
 
 
 def create_vector_store(documents):
@@ -27,7 +28,6 @@ def create_vector_store(documents):
 
     print("Создаю векторы локально (HuggingFace) и сохраняю в базу данных (Chroma)...")
 
-    # Создаем базу данных из переданных документов
     vector_store = Chroma.from_documents(
         documents=documents,
         embedding=embeddings,
@@ -43,7 +43,7 @@ def get_vector_store():
     Загружает существующую базу данных для поиска.
     """
     if not os.path.exists(CHROMA_PERSIST_DIR):
-        print("База данных не найдена. Сначала нужно загрузить документы.")
+        print(f"❌ База данных не найдена по пути: {CHROMA_PERSIST_DIR}")
         return None
 
     embeddings = get_huggingface_embeddings()
@@ -55,17 +55,13 @@ def get_vector_store():
     return vector_store
 
 
-# === БЛОК ЗАПУСКА (Чтение папки) ===
+# === БЛОК ЗАПУСКА ===
 if __name__ == "__main__":
-    # Указываем путь к папке docs, куда вы скопировали свои PDF
-    docs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/docs'))
+    docs_dir = os.path.join(BASE_DIR, "data", "docs")
 
     print("Начинаем обработку документов...")
-
-    # Вызываем загрузчик для всей папки
     documents = load_documents(docs_dir)
 
-    # Если документы загружены, создаем векторную базу
     if documents:
         create_vector_store(documents)
     else:
