@@ -2,52 +2,50 @@ from langchain_ollama import OllamaLLM
 from langchain_core.prompts import PromptTemplate
 from app.services.vector_store import get_vector_store
 
+def generate_answer(question: str, chat_history: list) -> str:
+    # 1. Поиск по базе данных ChromaDB
+    try:
+        vector_store = get_vector_store()
+        docs = vector_store.similarity_search(question, k=3)
+        context = "\n\n".join([doc.page_content for doc in docs])
+    except Exception as e:
+        print(f"Ошибка при поиске в БД: {e}")
+        context = ""
 
-# # Function to generate an answer based on vector DB and LLM / Функция для генерации ответа на основе векторной БД и LLM
-def generate_answer(query: str, chat_history: list = None) -> str:
-    # # Get vector store / Получаем векторное хранилище
-    vector_store = get_vector_store()
-    if not vector_store:
-        return "База данных пуста или не найдена. / Database is empty or not found."
-
-    # # Retrieve relevant document chunks / Получаем релевантные куски документов
-    retriever = vector_store.as_retriever(search_kwargs={"k": 5})
-    docs = retriever.invoke(query)
-    context = "\n\n".join([doc.page_content for doc in docs])
-
-    # # Format chat history / Форматируем историю диалога
+    # 2. Формируем историю чата в текст
     history_text = ""
     if chat_history:
         for msg in chat_history:
-            sender = "Пользователь" if msg["role"] == "user" else "Ассистент"
-            history_text += f"{sender}: {msg['content']}\n"
-    else:
-        history_text = "Начало диалога. / Start of the conversation."
+            role = "User" if msg.role == "user" else "AI"
+            history_text += f"{role}: {msg.content}\n"
 
-    # # Define prompt template / Задаем шаблон промпта
-    prompt = PromptTemplate(
-        template="""Ты профессиональный ментор и эксперт по Python. Отвечай на вопросы пользователя, основываясь ТОЛЬКО на предоставленном контексте из базы знаний.
+    # 3. Упрощенный и надежный системный промпт с якорем Answer
+    prompt_template = """You are a helpful AI assistant.
+Answer the user's question using ONLY the provided context.
+If the context is empty or does not contain the answer, you MUST reply with this exact phrase: "Leider gibt es in den Dokumenten keine Informationen dazu." (If the user asks in Russian or Ukrainian, translate this phrase accordingly).
+Do NOT repeat the question. Do not make up facts.
 
-ПРАВИЛА:
-1. Если ответа нет в контексте, отвечай: "В документах нет этой информации".
-2. Пиши кратко, структурно, используй примеры кода при необходимости.
-3. Не придумывай информацию.
-
-История диалога:
+Chat History:
 {history}
 
-Контекст:
+Context from documents:
 {context}
 
-Вопрос: {question}
-Ответ:""",
+User Question:
+{question}
+
+Answer:"""
+
+    # 4. Собираем промпт
+    prompt = PromptTemplate(
+        template=prompt_template,
         input_variables=["history", "context", "question"]
     )
 
-    # # Initialize Ollama model / Инициализируем модель Ollama
-    llm = OllamaLLM(model="llama3.2")
+    # 5. Инициализируем модель Ollama (с низкой температурой для точности)
+    llm = OllamaLLM(model="llama3.2", temperature=0.1)
 
-    # # Create chain and invoke / Создаем цепочку и вызываем генерацию
+    # 6. Создаем цепочку и вызываем генерацию
     chain = prompt | llm
 
-    return chain.invoke({"history": history_text, "context": context, "question": query})
+    return chain.invoke({"history": history_text, "context": context, "question": question})
