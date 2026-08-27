@@ -1,0 +1,69 @@
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import patch
+from main import app
+
+# TestClient fuer API-Tests initialisieren / Инициализация тестового клиента API
+client = TestClient(app)
+
+
+# Test fuer den Healthcheck-Endpunkt / Тест эндпоинта проверки статуса API
+def test_health_check():
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+# Test fuer den Frage-Endpunkt mit Mocking / Тест эндпоинта /ask с мокированием RAG-генератора
+@patch("main.generate_answer")
+def test_ask_endpoint_success(mock_generate_answer):
+    mock_generate_answer.return_value = "Python ist eine interpretierte Programmiersprache."
+
+    payload = {
+        "question": "Was ist Python?",
+        "chat_history": []
+    }
+    response = client.post("/ask", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["question"] == "Was ist Python?"
+    assert data["answer"] == "Python ist eine interpretierte Programmiersprache."
+    mock_generate_answer.assert_called_once()
+
+
+# Test fuer Pydantic-Validierungsfehler / Тест валидации Pydantic при отсутствии обязательного поля
+def test_ask_endpoint_validation_error():
+    # Senden einer leeren Anfrage / Отправка запроса без обязательного поля question
+    response = client.post("/ask", json={})
+    assert response.status_code == 422
+
+
+# Test fuer den Code-Review-Endpunkt / Тест эндпоинта /code-review с мокированием Ollama
+@patch("main.requests.post")
+def test_code_review_success(mock_post):
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "response": "1. Bemerkung: Keine Fehler.\n2. Code: def add(a: int, b: int) -> int: return a + b"
+    }
+
+    payload = {"code": "def add(a, b): return a + b"}
+    response = client.post("/code-review", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "review" in data
+    assert "Bemerkung" in data["review"]
+    mock_post.assert_called_once()
+
+
+# Test fuer Fehlerbehandlung bei Verbindungsabbruch zu Ollama / Тест обработки сбоя соединения с LLM
+@patch("main.requests.post")
+def test_code_review_connection_failure(mock_post):
+    mock_post.side_effect = Exception("Ollama connection refused")
+
+    payload = {"code": "print('hello')"}
+    response = client.post("/code-review", json=payload)
+
+    assert response.status_code == 200
+    assert "Verbindungsfehler" in response.json()["review"]
