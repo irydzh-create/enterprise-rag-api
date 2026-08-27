@@ -60,3 +60,33 @@ if __name__ == "__main__":
     test_question = "What are boolean values and conditionals?"
     answer = generate_answer(test_question)
     print("Antwort / Ответ:\n", answer)
+# Zusammenfassung fuer ein bestimmtes Thema erstellen / Генерация краткого резюме по теме
+def summarize_topic(topic: str) -> str:
+    # Relevante Dokumente ueber Hybridsuche abrufen / Получение релевантных документов
+    docs = search_documents(topic, top_k=4)
+    if not docs:
+        return "Не удалось найти материалы по указанной теме для суммаризации."
+
+    context = "\n\n".join([doc.page_content for doc in docs])
+
+    # Prompt-Vorlage fuer strukturierte Zusammenfassung / Промпт для структурированного резюме
+    prompt = PromptTemplate(
+        template="""Ты ведущий технический аналитик. 
+Составь четкое, структурированное резюме (Executive Summary) по теме: "{topic}".
+
+Базируйся ТОЛЬКО на следующем контексте:
+{context}
+
+ФОРМАТ ОТВЕТА:
+- **Ключевая суть**: 1-2 предложения.
+- **Основные тезисы**: 3-4 маркированных пункта с главными деталями.
+- **Практическое применение**: 1 предложение.
+
+Резюме:""",
+        input_variables=["topic", "context"]
+    )
+
+    llm = OllamaLLM(model="llama3.2")
+    chain = prompt | llm
+
+    return chain.invoke({"topic": topic, "context": context})

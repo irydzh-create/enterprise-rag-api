@@ -67,3 +67,16 @@ def test_code_review_connection_failure(mock_post):
 
     assert response.status_code == 200
     assert "Verbindungsfehler" in response.json()["review"]
+# Test fuer den Zusammenfassungs-Endpunkt / Тест эндпоинта /summarize с мокированием
+@patch("main.summarize_topic")
+def test_summarize_endpoint_success(mock_summarize):
+    mock_summarize.return_value = "- Ключевая суть: Описание темы.\n- Основные тезисы: Пункт 1."
+
+    payload = {"topic": "Variables and Data Types"}
+    response = client.post("/summarize", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["topic"] == "Variables and Data Types"
+    assert "summary" in data
+    mock_summarize.assert_called_once()

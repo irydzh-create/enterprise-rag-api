@@ -1,8 +1,8 @@
+from app.services.generator import generate_answer, summarize_topic
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Optional
 import requests
-from app.services.generator import generate_answer
 
 # FastAPI-Anwendung initialisieren / Инициализация приложения FastAPI
 app = FastAPI(
@@ -24,7 +24,18 @@ class QueryRequest(BaseModel):
 # Anfragemodell fuer Code-Review / Модель запроса для проверки кода
 class CodeReviewRequest(BaseModel):
     code: str
+# Anfragemodell fuer Zusammenfassungen / Модель запроса для суммаризации
+class SummarizeRequest(BaseModel):
+    topic: str
 
+# Endpunkt fuer thematische Zusammenfassungen / Эндпоинт для генерации структурированного резюме
+@app.post("/summarize")
+def summarize_document_topic(request: SummarizeRequest):
+    summary = summarize_topic(topic=request.topic)
+    return {
+        "topic": request.topic,
+        "summary": summary
+    }
 # Statuspruefung / Проверка работоспособности сервиса
 @app.get("/")
 def health_check():
