@@ -2,7 +2,6 @@
 # Корпоративная система интеллектуальной работы с документами и локальный RAG API
 
 A GDPR-compliant, privacy-first Retrieval-Augmented Generation (RAG) backend built with **FastAPI**, **LangChain**, **ChromaDB**, and local LLMs via **Ollama** (`llama3.2`). Designed for enterprise use cases where document security and data privacy are paramount.
-
 ## Key Features / Основные возможности
 - **GDPR / DSGVO Compliant / Соответствие GDPR:** Local embeddings (`all-MiniLM-L6-v2`) and local LLM execution via Ollama ensure confidential documents never leave the internal network.
 - **RESTful API:** Clean interface powered by FastAPI with auto-generated Interactive OpenAPI (Swagger) documentation.
