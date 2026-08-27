@@ -9,11 +9,16 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 from app.services.vector_store import get_vector_store, BASE_DIR
 from app.services.document_loader import load_and_split_documents
 
-# Reranker-Modell laden / Загрузка модели реранкера
-reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-
-# Cache fuer BM25-Retriever / Кэш для BM25-поисковика
+# Cache fuer Modelle / Кэш для моделей
+_cached_reranker = None
 _cached_bm25 = None
+
+# Reranker-Modell bei Bedarf initialisieren / Инициализация реранкера по требованию
+def get_reranker():
+    global _cached_reranker
+    if _cached_reranker is None:
+        _cached_reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    return _cached_reranker
 
 # BM25-Retriever initialisieren / Инициализация BM25-поисковика
 def get_bm25_retriever():
@@ -52,6 +57,7 @@ def search_documents(query: str, top_k: int = 3, candidate_pool: int = 6):
         return []
 
     # 4. Re-Ranking ueber Cross-Encoder / 4. Точный скоринг через Cross-Encoder
+    reranker = get_reranker()
     pairs = [[query, doc.page_content] for doc in unique_candidates]
     scores = reranker.predict(pairs)
 
