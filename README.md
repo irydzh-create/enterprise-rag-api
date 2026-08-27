@@ -1,38 +1,45 @@
-# Enterprise Document Intelligence & Local RAG API 🛡️
-# Корпоративная система интеллектуальной работы с документами и локальный RAG API
+# Enterprise Document Intelligence & Hybrid RAG API 🛡️
 
-A GDPR-compliant, privacy-first Retrieval-Augmented Generation (RAG) backend built with **FastAPI**, **LangChain**, **ChromaDB**, and local LLMs via **Ollama** (`llama3.2`). Designed for enterprise use cases where document security and data privacy are paramount.
-## Key Features / Основные возможности
-- **GDPR / DSGVO Compliant / Соответствие GDPR:** Local embeddings (`all-MiniLM-L6-v2`) and local LLM execution via Ollama ensure confidential documents never leave the internal network.
-- **RESTful API:** Clean interface powered by FastAPI with auto-generated Interactive OpenAPI (Swagger) documentation.
-- **Document Processing / Обработка документов:** Efficient PDF parsing, text chunking, and vector persistence using ChromaDB.
-- **Contextual QA / Контекстный поиск:** Semantic similarity search with precision-driven prompt templates for corporate document queries.
-- **Telegram Bot Integration / Интеграция с Telegram-ботом:** Asynchronous bot (`aiogram 3.x`) acting as a conversational interface for both document Q&A and AI-powered code reviews (`/review`).
-- **AI Code Review / ИИ Код-ревью:** Specialized endpoint analyzing Python code snippets via local `llama3.2` for potential bugs, PEP 8 compliance, and optimizations.
+[![CI Pipeline](https://github.com/irydzh-create/enterprise-rag-api/actions/workflows/ci.yml/badge.svg)](https://github.com/irydzh-create/enterprise-rag-api/actions/workflows/ci.yml)
+[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.14-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker)](https://www.docker.com/)
 
-## Tech Stack / Технологический стек
-- **Framework / Фреймворк:** Python 3.10+, FastAPI, Uvicorn
-- **Orchestration / Оркестрация:** LangChain
-- **Vector Store / Векторная база:** ChromaDB
-- **Embeddings / Эмбеддинги:** HuggingFace (`sentence-transformers/all-MiniLM-L6-v2`)
-- **LLM Engine / Модель LLM:** Ollama (`llama3.2`)
-- **Bot Interface / Интерфейс бота:** aiogram 3.x
+A GDPR/DSGVO-compliant, privacy-first Retrieval-Augmented Generation (RAG) backend engineered for enterprise document management. It features a two-stage **Hybrid Retrieval Pipeline** (ChromaDB + BM25 with Cross-Encoder reranking), local LLM inference via **Ollama** (`llama3.2`), and dual interfaces: a RESTful API and an asynchronous Telegram Bot.
 
-## Architecture & Data Flow / Архитектура и поток данных
-1. **Document Ingestion / Загрузка документов:** PDF files are loaded and split into semantic chunks.
-2. **Vector Embedding / Векторизация:** Text chunks are vectorized locally using HuggingFace models.
-3. **Storage / Хранение:** Embeddings are persisted in a local ChromaDB instance.
-4. **Retrieval & Generation / Поиск и генерация:** User queries hit the `/ask` endpoint, trigger a similarity search in ChromaDB, and pass retrieved context to local `llama3.2` for response generation.
+---
 
-## Project Structure / Структура проекта
+## Key Features
+
+* **GDPR / DSGVO Compliant**: Fully on-premises pipeline using `paraphrase-multilingual-MiniLM-L12-v2` embeddings and local `llama3.2` execution via Ollama. Confidential documents never leave the internal perimeter.
+* **Two-Stage Hybrid Retrieval**: Combines semantic vector similarity (ChromaDB) with lexical keyword matching (BM25) and re-ranks candidates using a Cross-Encoder (`ms-marco-MiniLM-L-6-v2`) for high precision.
+* **Semantic Chunking**: Structured parsing using `PyMuPDF` and `RecursiveCharacterTextSplitter` (800-character chunks with 150-character overlap) to prevent context loss at page boundaries.
+* **Multi-Turn Conversational Memory**: Stateful dialog support for contextual follow-up questions.
+* **Automated Code Review**: Dedicated `/code-review` endpoint and `/review` bot command leveraging low-temperature LLM prompts for static Python analysis and PEP 8 compliance checks.
+* **Topic Summarization**: Automated extraction of structured executive summaries (`/summarize` and `/summary`) across indexed documents.
+* **Enterprise CI/CD & Testing**: 100% test pass rate with `pytest` (mocked LLM/database layers) and multi-version matrix CI workflows via GitHub Actions (Python 3.11 & 3.14).
+
+---
+
+## Architecture & Data Flow
+
 ```text
-enterprise-rag-api/
-├── app/
-│   ├── api/          # API endpoints and route handlers / Эндпоинты и обработчики
-│   ├── core/         # Environment configurations & settings / Конфигурация и настройки
-│   └── services/     # RAG pipeline & generators / Конвейер RAG и генераторы
-├── data/             # Local vector store & PDF inputs (git-ignored) / База векторов и документы
-├── main.py           # FastAPI entrypoint / Точка входа FastAPI
-├── telegram_bot.py   # Asynchronous Telegram bot interface / Асинхронный Telegram-бот
-├── requirements.txt  # Project dependencies / Зависимости проекта
-└── .env              # Environment secrets (git-ignored) / Секретные ключи
+[ Document Store (PDF) ] ──> [ PyMuPDF Loader ] ──> [ Semantic Chunks (800/150) ]
+                                                            │
+                     ┌──────────────────────────────────────┴──────────────────────────────────────┐
+                     ▼                                                                             ▼
+          [ ChromaDB Vector Store ]                                                       [ BM25 Retriever ]
+         (Semantic Embeddings: MiniLM)                                                   (Keyword Search)
+                     │                                                                             │
+                     └──────────────────────────────┬──────────────────────────────────────────────┘
+                                                    ▼
+                                    [ Candidate Pool (Top 6) ]
+                                                    │
+                                                    ▼
+                                    [ Cross-Encoder Reranker ]
+                                    (ms-marco-MiniLM-L-6-v2)
+                                                    │
+                                                    ▼
+                                     [ Top 3 Verified Context ]
+                                                    │
+[ User Query / API / Telegram ] ───────────────────┼──> [ Ollama: llama3.2 ] ──> [ Structured Response ]
