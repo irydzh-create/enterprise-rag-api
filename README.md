@@ -1,3 +1,13 @@
+---
+title: Enterprise RAG API
+emoji: 🛡️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Enterprise Document Intelligence & Hybrid RAG API 🛡️
 
 [![CI Pipeline](https://github.com/irydzh-create/enterprise-rag-api/actions/workflows/ci.yml/badge.svg)](https://github.com/irydzh-create/enterprise-rag-api/actions/workflows/ci.yml)
