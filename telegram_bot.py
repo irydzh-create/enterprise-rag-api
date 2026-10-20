@@ -1,93 +1,144 @@
+"""Telegram interface with bounded, chat-scoped conversation memory."""
 import asyncio
+import logging
 import os
-import requests
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart, Command
+import time
+from collections import OrderedDict
+
+import httpx
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.filters import Command, CommandStart
+from aiogram.fsm.storage.memory import SimpleEventIsolation
 from dotenv import load_dotenv
 
-# Umgebungsvariablen laden / Загрузка переменных окружения
-load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+from app.core.config import settings
 
-if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN nicht in .env gefunden / Токен не найден в .env")
+logger = logging.getLogger(__name__)
+dp = Dispatcher(events_isolation=SimpleEventIsolation())
+user_histories = OrderedDict()
+HISTORY_TTL = 3600
+MAX_HISTORIES = 1000
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
 
-# Lokaler Speicher fuer Konversationsverlaeufe / Локальное хранилище истории диалогов
-user_histories = {}
+def history_key(message):
+    return (message.chat.id, message.from_user.id)
 
-# Handler fuer den Startbefehl / Обработчик команды /start
+
+def read_history(key):
+    now = time.monotonic()
+    for old_key, (updated, _) in list(user_histories.items()):
+        if now - updated > HISTORY_TTL:
+            del user_histories[old_key]
+    item = user_histories.get(key)
+    return list(item[1]) if item else []
+
+
+def write_history(key, history):
+    user_histories[key] = (time.monotonic(), history[-4:])
+    user_histories.move_to_end(key)
+    while len(user_histories) > MAX_HISTORIES:
+        user_histories.popitem(last=False)
+
+
+async def api_request(endpoint, payload, field):
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
+        response = await client.post(f"{settings.API_BASE_URL}/{endpoint}", json=payload)
+    response.raise_for_status()
+    data = response.json()
+    answer = data.get(field) if isinstance(data, dict) else None
+    if not isinstance(answer, str) or not answer.strip():
+        raise ValueError("API returned an invalid answer.")
+    return answer
+
+
+async def send_answer(status, message, text):
+    # Telegram text messages have a 4096 UTF-16-code-unit limit.
+    parts, current, units = [], [], 0
+    for char in text:
+        size = len(char.encode("utf-16-le")) // 2
+        if units + size > 4000:
+            parts.append("".join(current))
+            current, units = [], 0
+        current.append(char)
+        units += size
+    if current:
+        parts.append("".join(current))
+    await status.edit_text(parts[0])
+    for part in parts[1:]:
+        await message.answer(part)
+
+
+async def perform_request(message, endpoint, payload, field):
+    status = await message.answer("Обрабатываю запрос…")
+    try:
+        answer = await api_request(endpoint, payload, field)
+    except (httpx.HTTPError, ValueError):
+        logger.exception("API request failed")
+        await status.edit_text("Не удалось получить ответ. Проверьте API и Ollama, затем повторите запрос.")
+        return None
+    await send_answer(status, message, answer)
+    return answer
+
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    user_histories[message.from_user.id] = []
+    if message.from_user:
+        user_histories.pop(history_key(message), None)
     await message.answer(
-        "AI-Assistent bereit.\n"
-        "- Frage zu den Dokumenten stellen (Text eingeben)\n"
-        "- Code-Review anfordern: /review <Code>",
-        parse_mode="Markdown"
+        "Задайте вопрос по документам.\n"
+        "/review <код> — проверка кода\n"
+        "/summary <тема> — краткое резюме\n"
+        "/start — очистить историю"
     )
 
-# Handler fuer Code-Review / Обработчик команды /review
-@dp.message(Command("review"))
-async def cmd_review(message: types.Message):
-    code_text = message.text.replace("/review", "").strip()
 
-    if not code_text:
-        await message.answer(
-            "Bitte Code nach dem Befehl angeben.\nBeispiel: `/review def add(a, b): return a + b`",
-            parse_mode="Markdown"
-        )
+@dp.message(Command("review", "summary"))
+async def cmd_tool(message: types.Message):
+    command, _, body = message.text.partition(" ")
+    body = body.strip()
+    name = command.split("@", 1)[0].lstrip("/")
+    if not body:
+        await message.answer(f"Добавьте текст после /{name}.")
         return
+    if name == "review":
+        await perform_request(message, "code-review", {"code": body}, "review")
+    else:
+        await perform_request(message, "summarize", {"topic": body}, "summary")
 
-    status_msg = await message.answer("Code-Analyse laeuft...")
-    api_url = "http://127.0.0.1:8000/code-review"
 
-    try:
-        response = requests.post(api_url, json={"code": code_text}, timeout=180)
-        if response.status_code == 200:
-            review_text = response.json().get("review", "Leere Antwort erhalten.")
-            await status_msg.edit_text(review_text)
-        else:
-            await status_msg.edit_text("Serverfehler bei der Code-Pruefung.")
-    except Exception as e:
-        await status_msg.edit_text(f"Verbindungsfehler zum API-Server: {e}")
-
-# Handler fuer allgemeine Dokumentenabfragen / Обработчик вопросов по базе знаний (RAG)
-@dp.message()
+@dp.message(F.text)
 async def handle_document_query(message: types.Message):
-    user_id = message.from_user.id
-    user_text = message.text
+    if not message.from_user:
+        return
+    if message.text.startswith("/"):
+        await message.answer("Неизвестная команда. Доступны /start, /review и /summary.")
+        return
+    key = history_key(message)
+    history = read_history(key)
+    answer = await perform_request(
+        message, "ask", {"question": message.text, "chat_history": history}, "answer"
+    )
+    if answer is not None:
+        write_history(key, history + [
+            {"role": "user", "content": message.text},
+            {"role": "assistant", "content": answer[:8000]},
+        ])
 
-    if user_id not in user_histories:
-        user_histories[user_id] = []
 
-    status_msg = await message.answer("Suche in Dokumenten...")
-    api_url = "http://127.0.0.1:8000/ask"
+@dp.message()
+async def unsupported_message(message: types.Message):
+    await message.answer("Пожалуйста, отправьте текстовый вопрос.")
 
-    payload = {
-        "question": user_text,
-        "chat_history": user_histories[user_id]
-    }
 
-    try:
-        response = requests.post(api_url, json=payload, timeout=60).json()
-        ai_answer = response.get("answer", "Keine Antwort erhalten.")
-
-        # Verlauf aktualisieren / Обновление истории диалога
-        user_histories[user_id].append({"role": "user", "content": user_text})
-        user_histories[user_id].append({"role": "assistant", "content": ai_answer})
-        user_histories[user_id] = user_histories[user_id][-4:]
-
-        await status_msg.edit_text(ai_answer)
-    except Exception as e:
-        await status_msg.edit_text(f"Fehler bei der Verbindung zum RAG-Server: {e}")
-
-# Hauptfunktion fuer Bot-Start / Главная функция запуска бота
 async def main():
-    print("Telegram-Bot gestartet / Telegram-бот запущен.")
-    await dp.start_polling(bot)
+    load_dotenv()
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise ValueError("Set TELEGRAM_BOT_TOKEN in .env.")
+    async with Bot(token=token) as bot:
+        await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())

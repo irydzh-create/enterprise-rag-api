@@ -1,5 +1,6 @@
 import os
 import sys
+from functools import lru_cache
 
 # Projekt-Wurzelverzeichnis zum Pfad hinzufuegen / Добавление корня проекта в системный путь
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -13,16 +14,18 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 CHROMA_PERSIST_DIR = os.path.join(BASE_DIR, "data", "chroma_db")
 
 # Mehrsprachiges Embedding-Modell initialisieren / Инициализация мультиязычной модели эмбеддингов
+@lru_cache(maxsize=1)
 def get_huggingface_embeddings():
     return HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
 
 # Vektorspeicher erstellen und speichern / Создание и сохранение векторного хранилища
-def create_vector_store(documents):
+def create_vector_store(documents, ids=None):
     embeddings = get_huggingface_embeddings()
     print("Erstelle Vektorspeicher / Создание векторного хранилища...")
 
     vector_store = Chroma.from_documents(
         documents=documents,
+        ids=ids,
         embedding=embeddings,
         persist_directory=CHROMA_PERSIST_DIR
     )
