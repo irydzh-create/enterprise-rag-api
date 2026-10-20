@@ -2,7 +2,7 @@ services:
   rag-api:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
     extra_hosts:

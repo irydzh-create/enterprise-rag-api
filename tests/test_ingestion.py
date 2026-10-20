@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import Mock, patch
 from langchain_core.documents import Document
 from ingest import ingest_documents
@@ -7,6 +8,7 @@ from app.services.retriever import get_bm25_retriever
 @patch("ingest.create_vector_store")
 @patch("ingest.load_and_split_documents")
 def test_ingestion_creates_store_and_uses_stable_ids(load, create):
+    create.return_value.get.return_value = {"ids": []}
     load.return_value = [
         Document(page_content="Example text", metadata={"source": "test.pdf", "page": 0})
     ]
@@ -20,7 +22,8 @@ def test_ingestion_creates_store_and_uses_stable_ids(load, create):
 @patch("ingest.create_vector_store")
 @patch("ingest.load_and_split_documents", return_value=[])
 def test_empty_ingestion_does_not_create_store(load, create):
-    assert ingest_documents() == 0
+    with pytest.raises(ValueError, match="No PDF text"):
+        ingest_documents()
     create.assert_not_called()
 
 

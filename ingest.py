@@ -11,8 +11,7 @@ def ingest_documents():
     data_dir = os.path.join(BASE_DIR, "data", "docs")
     chunks = load_and_split_documents(data_dir)
     if not chunks:
-        print("No PDF text found in data/docs.")
-        return 0
+        raise ValueError("No PDF text found. Existing index was left unchanged.")
     # Stable IDs make re-indexing unchanged PDFs idempotent.
     ids = [
         hashlib.sha256(
@@ -24,7 +23,12 @@ def ingest_documents():
         for doc in chunks
     ]
     unique = dict(zip(ids, chunks))
-    create_vector_store(list(unique.values()), ids=list(unique))
+    vector_store = create_vector_store(list(unique.values()), ids=list(unique))
+    # Remove obsolete chunks only after all new chunks have been written.
+    existing_ids = set(vector_store.get().get("ids") or [])
+    stale_ids = existing_ids - set(unique)
+    if stale_ids:
+        vector_store.delete(ids=sorted(stale_ids))
     print(f"Indexed {len(unique)} chunks.")
     return len(unique)
 

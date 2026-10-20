@@ -10,4 +10,5 @@ __pycache__/
 
 # Локальные данные
 data/
-chroma_db/ # Добавь эту строку, если ChromaDB создает отдельную папку для векторов
+chroma_db/
+.pytest_cache/
