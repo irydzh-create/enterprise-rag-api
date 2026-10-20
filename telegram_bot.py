@@ -1,7 +1,8 @@
 import asyncio
 import os
-import requests
-from aiogram import Bot, Dispatcher, types
+import httpx
+from app.core.config import settings
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from dotenv import load_dotenv
 
@@ -42,20 +43,21 @@ async def cmd_review(message: types.Message):
         return
 
     status_msg = await message.answer("Code-Analyse laeuft...")
-    api_url = "http://127.0.0.1:8000/code-review"
+    api_url = f"{settings.API_BASE_URL}/code-review"
 
     try:
-        response = requests.post(api_url, json={"code": code_text}, timeout=180)
+        async with httpx.AsyncClient(timeout=180) as client:
+            response = await client.post(api_url, json={"code": code_text})
         if response.status_code == 200:
             review_text = response.json().get("review", "Leere Antwort erhalten.")
-            await status_msg.edit_text(review_text)
+            await status_msg.edit_text(review_text[:4096])
         else:
             await status_msg.edit_text("Serverfehler bei der Code-Pruefung.")
     except Exception as e:
         await status_msg.edit_text(f"Verbindungsfehler zum API-Server: {e}")
 
 # Handler fuer allgemeine Dokumentenabfragen / Обработчик вопросов по базе знаний (RAG)
-@dp.message()
+@dp.message(F.text)
 async def handle_document_query(message: types.Message):
     user_id = message.from_user.id
     user_text = message.text
@@ -64,7 +66,7 @@ async def handle_document_query(message: types.Message):
         user_histories[user_id] = []
 
     status_msg = await message.answer("Suche in Dokumenten...")
-    api_url = "http://127.0.0.1:8000/ask"
+    api_url = f"{settings.API_BASE_URL}/ask"
 
     payload = {
         "question": user_text,
@@ -72,7 +74,10 @@ async def handle_document_query(message: types.Message):
     }
 
     try:
-        response = requests.post(api_url, json=payload, timeout=60).json()
+        async with httpx.AsyncClient(timeout=180) as client:
+            api_response = await client.post(api_url, json=payload)
+        api_response.raise_for_status()
+        response = api_response.json()
         ai_answer = response.get("answer", "Keine Antwort erhalten.")
 
         # Verlauf aktualisieren / Обновление истории диалога
@@ -80,7 +85,7 @@ async def handle_document_query(message: types.Message):
         user_histories[user_id].append({"role": "assistant", "content": ai_answer})
         user_histories[user_id] = user_histories[user_id][-4:]
 
-        await status_msg.edit_text(ai_answer)
+        await status_msg.edit_text(ai_answer[:4096])
     except Exception as e:
         await status_msg.edit_text(f"Fehler bei der Verbindung zum RAG-Server: {e}")
 

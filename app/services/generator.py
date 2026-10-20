@@ -5,6 +5,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 from langchain_ollama import OllamaLLM
+from app.core.config import settings
 from langchain_core.prompts import PromptTemplate
 from app.services.retriever import search_documents
 
@@ -50,7 +51,7 @@ def generate_answer(query: str, chat_history: list = None) -> str:
     )
 
     # Lokales Sprachmodell initialisieren / Инициализация локальной языковой модели
-    llm = OllamaLLM(model="llama3.2")
+    llm = OllamaLLM(model=settings.OLLAMA_MODEL, base_url=settings.OLLAMA_BASE_URL)
     chain = prompt | llm
 
     return chain.invoke({"history": history_text, "context": context, "question": query})
@@ -86,7 +87,7 @@ def summarize_topic(topic: str) -> str:
         input_variables=["topic", "context"]
     )
 
-    llm = OllamaLLM(model="llama3.2")
+    llm = OllamaLLM(model=settings.OLLAMA_MODEL, base_url=settings.OLLAMA_BASE_URL)
     chain = prompt | llm
 
     return chain.invoke({"topic": topic, "context": context})

@@ -60,13 +60,14 @@ def test_code_review_success(mock_post):
 # Test fuer Fehlerbehandlung bei Verbindungsabbruch zu Ollama / Тест обработки сбоя соединения с LLM
 @patch("main.requests.post")
 def test_code_review_connection_failure(mock_post):
-    mock_post.side_effect = Exception("Ollama connection refused")
+    import requests
+    mock_post.side_effect = requests.ConnectionError("Ollama connection refused")
 
     payload = {"code": "print('hello')"}
     response = client.post("/code-review", json=payload)
 
-    assert response.status_code == 200
-    assert "Verbindungsfehler" in response.json()["review"]
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Ollama is unavailable."
 # Test fuer den Zusammenfassungs-Endpunkt / Тест эндпоинта /summarize с мокированием
 @patch("main.summarize_topic")
 def test_summarize_endpoint_success(mock_summarize):
@@ -80,3 +81,28 @@ def test_summarize_endpoint_success(mock_summarize):
     assert data["topic"] == "Variables and Data Types"
     assert "summary" in data
     mock_summarize.assert_called_once()
+
+@patch("main.requests.post")
+def test_code_review_timeout(mock_post):
+    import requests
+    mock_post.side_effect = requests.Timeout()
+    assert client.post("/code-review", json={"code": "pass"}).status_code == 504
+
+
+@patch("main.requests.post")
+def test_code_review_upstream_error(mock_post):
+    import requests
+    mock_post.return_value.raise_for_status.side_effect = requests.HTTPError()
+    assert client.post("/code-review", json={"code": "pass"}).status_code == 502
+
+
+@patch("main.requests.post")
+def test_code_review_invalid_json(mock_post):
+    mock_post.return_value.json.side_effect = ValueError("Invalid JSON")
+    assert client.post("/code-review", json={"code": "pass"}).status_code == 502
+
+
+@patch("main.requests.post")
+def test_code_review_empty_response(mock_post):
+    mock_post.return_value.json.return_value = {"response": ""}
+    assert client.post("/code-review", json={"code": "pass"}).status_code == 502

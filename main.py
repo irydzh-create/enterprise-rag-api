@@ -1,8 +1,9 @@
 from app.services.generator import generate_answer, summarize_topic
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import requests
+from app.core.config import settings
 
 # FastAPI-Anwendung initialisieren / Инициализация приложения FastAPI
 app = FastAPI(
@@ -69,9 +70,9 @@ def code_review(request: CodeReviewRequest):
     try:
         # Anfrage an die lokale Ollama-Instanz / Запрос к локальному сервису Ollama
         response = requests.post(
-            "http://localhost:11434/api/generate",
+            f"{settings.OLLAMA_BASE_URL}/api/generate",
             json={
-                "model": "llama3.2",
+                "model": settings.OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
@@ -81,11 +82,16 @@ def code_review(request: CodeReviewRequest):
             timeout=60
         )
 
-        if response.status_code == 200:
-            result = response.json().get("response", "Keine Antwort erhalten / Не удалось получить ответ.")
-            return {"review": result}
-        else:
-            return {"review": "Fehler bei der Kommunikation mit dem Modell / Ошибка связи с моделью."}
-
-    except Exception as e:
-        return {"review": f"Verbindungsfehler / Ошибка соединения: {e}"}
+        response.raise_for_status()
+        result = response.json().get("response")
+        if not isinstance(result, str) or not result.strip():
+            raise HTTPException(status_code=502, detail="Ollama returned an empty or invalid response.")
+        return {"review": result}
+    except requests.Timeout as exc:
+        raise HTTPException(status_code=504, detail="Ollama request timed out.") from exc
+    except requests.ConnectionError as exc:
+        raise HTTPException(status_code=503, detail="Ollama is unavailable.") from exc
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail="Ollama request failed.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Ollama returned invalid JSON.") from exc

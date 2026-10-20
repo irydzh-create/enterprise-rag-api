@@ -27,6 +27,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
       # 3. Abhaengigkeiten installieren / Установка зависимостей
       - name: Install dependencies
         run: |

@@ -11,7 +11,6 @@ from app.services.document_loader import load_and_split_documents
 
 # Cache fuer Modelle / Кэш для моделей
 _cached_reranker = None
-_cached_bm25 = None
 
 # Reranker-Modell bei Bedarf initialisieren / Инициализация реранкера по требованию
 def get_reranker():
@@ -21,14 +20,22 @@ def get_reranker():
     return _cached_reranker
 
 # BM25-Retriever initialisieren / Инициализация BM25-поисковика
-def get_bm25_retriever():
-    global _cached_bm25
-    if _cached_bm25 is None:
-        docs_dir = os.path.join(BASE_DIR, "data", "docs")
-        chunks = load_and_split_documents(docs_dir)
-        _cached_bm25 = BM25Retriever.from_documents(chunks)
-        _cached_bm25.k = 15
-    return _cached_bm25
+def get_bm25_retriever(vector_store):
+    # Use the indexed chunks, not a second parse of the source PDFs.
+    from langchain_core.documents import Document
+
+    indexed = vector_store.get()
+    texts = indexed.get("documents") or []
+    metadata = indexed.get("metadatas") or [{} for _ in texts]
+    if not texts:
+        return None
+    chunks = [
+        Document(page_content=text, metadata=meta or {})
+        for text, meta in zip(texts, metadata)
+    ]
+    retriever = BM25Retriever.from_documents(chunks)
+    retriever.k = 15
+    return retriever
 
 # Hybride Suche mit Cross-Encoder Reranking / Гибридный поиск с точным реранкингом
 def search_documents(query: str, top_k: int = 3, candidate_pool: int = 6):
@@ -41,8 +48,8 @@ def search_documents(query: str, top_k: int = 3, candidate_pool: int = 6):
     vector_docs = chroma_retriever.invoke(query)
 
     # 2. BM25-Schluesselwortsuche / 2. Поиск по ключевым словам BM25
-    bm25_retriever = get_bm25_retriever()
-    bm25_docs = bm25_retriever.invoke(query)
+    bm25_retriever = get_bm25_retriever(vector_store)
+    bm25_docs = bm25_retriever.invoke(query) if bm25_retriever else []
 
     # 3. Zusammenfuehren und Duplikate entfernen / 3. Объединение кандидатов и удаление дубликатов
     combined_docs = vector_docs + bm25_docs

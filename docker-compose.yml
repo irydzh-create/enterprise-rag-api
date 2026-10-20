@@ -1,16 +1,14 @@
 services:
-  version: '3.8'
-
-  services:
-    rag-api:
-      build: .
-      container_name: enterprise_rag_api
-      ports:
-        - "8000:8000"
-      volumes:
-        - ./data:/app/data
-      extra_hosts:
-        - "host.docker.internal:host-gateway"
-      environment:
-        - PYTHONUNBUFFERED=1
-      restart: unless-stopped
+  rag-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      PYTHONUNBUFFERED: "1"
+    restart: unless-stopped
